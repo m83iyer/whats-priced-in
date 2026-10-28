@@ -1,0 +1,13 @@
+ticker: CREEK
+name: Creek Synthetic
+notes: Fictional UAE case. Earnings and market cap are AED million. Not a security.
+currency: AED
+scale: million
+market_cap: 2500
+earnings: 180
+cost_of_equity: 0.10
+terminal_growth: 0.03
+years: 10
+payout: 0.8
+earnings_basis: fcfe
+tax_rate: 0.09

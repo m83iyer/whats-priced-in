@@ -1,0 +1,14 @@
+ticker: SYNTH
+name: Synthetic Holdings
+notes: Fictional company used in the documentation. Not a security and not a recommendation.
+currency: USD
+scale: unit
+price: 150
+earnings: 8.8
+revenue: 44
+cost_of_equity: 0.11
+terminal_growth: 0.04
+years: 10
+payout: 1
+earnings_basis: fcfe
+tax_rate: 0.21

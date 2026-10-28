@@ -1,0 +1,14 @@
+ticker: NARMADA
+name: Narmada Synthetic
+notes: Fictional Indian case. Earnings and market cap are ₹ crore. Shares are in crore. Not a security.
+currency: INR
+scale: crore
+price: 200
+shares: 100
+earnings: 800
+cost_of_equity: 0.13
+terminal_growth: 0.06
+years: 10
+payout: 1
+earnings_basis: pat
+tax_rate: 0.25

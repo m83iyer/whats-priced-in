@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whats-priced-in"
+version = "0.1.0"
+description = "Price in, implied bet out."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "Manoj" }]
+dependencies = ["PyYAML"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+wpi = "whats_priced_in.cli:main"
+whats-priced-in = "whats_priced_in.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["whats_priced_in*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

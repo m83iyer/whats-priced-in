@@ -1,0 +1,9 @@
+{
+  "earnings": 10,
+  "growth": 0.08,
+  "cost_of_equity": 0.1,
+  "terminal_growth": 0.03,
+  "years": 5,
+  "payout": 1,
+  "equity_value": 181.58
+}
