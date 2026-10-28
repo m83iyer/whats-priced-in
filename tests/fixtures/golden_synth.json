@@ -1,9 +1,18 @@
 {
-  "earnings": 10,
-  "growth": 0.08,
-  "cost_of_equity": 0.1,
-  "terminal_growth": 0.03,
-  "years": 5,
-  "payout": 1,
-  "equity_value": 181.58
+  "description": "Frozen two-stage FCFE figures. Not a security. The audit case is independent of SYNTH.",
+  "audit": {
+    "earnings": 10,
+    "growth": 0.08,
+    "cost_of_equity": 0.1,
+    "terminal_growth": 0.03,
+    "years": 5,
+    "payout": 1,
+    "explicit_pv": 47.3379479345052,
+    "terminal_pv": 134.24389249403694,
+    "equity_value": 181.58184042854214
+  },
+  "synth_implied_growth": 0.07174705988709823,
+  "synth_explicit_pv": 66.30133976463085,
+  "synth_terminal_pv": 83.69866023536912,
+  "synth_year_n_earnings": 15.996058910068935
 }

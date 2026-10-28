@@ -1,189 +1,194 @@
-"""Forward value and implied-growth tables."""
+"""Sensitivity tables. One assumption moves. The rest stay put, and say so."""
 
-from whats_priced_in.disclosure import equity_items, percent, render_disclosure
-from whats_priced_in.model import VERSION, implied_growth, present_value
-from whats_priced_in.render import flow, header, join_sections, key_block, key_pairs, signed_percent
+from __future__ import annotations
 
-GROWTH_VALUES = [0.0, 0.02, 0.04, 0.06, 0.08, 0.10, 0.12, 0.15, 0.20]
-COST_OF_EQUITY_VALUES = [0.09, 0.10, 0.11, 0.12, 0.13]
-TERMINAL_VALUES = [0.02, 0.03, 0.04, 0.05, 0.06]
-PAYOUT_VALUES = [0.60, 0.80, 1.00]
+from dataclasses import dataclass, replace
 
-PARAMETER_LABELS = {
-    "cost_of_equity": "cost of equity",
-    "terminal_growth": "terminal growth",
-    "payout": "payout",
-    "growth": "growth",
-}
-DEFAULT_GRIDS = {
-    "growth": GROWTH_VALUES,
-    "cost_of_equity": COST_OF_EQUITY_VALUES,
-    "terminal_growth": TERMINAL_VALUES,
-    "payout": PAYOUT_VALUES,
-}
+from whats_priced_in.assumptions import Assumptions, prepare, resolve_target
+from whats_priced_in.dcf import Valuation, solve_growth, value_growth
+from whats_priced_in.disclosure import Disclosure
+from whats_priced_in.errors import ModelError
+
+GROWTH_GRID = (0.0, 0.02, 0.04, 0.06, 0.08, 0.10, 0.12, 0.15, 0.20)
+PAYOUT_GRID = (0.60, 0.80, 1.0)
+TERMINAL_GRID = (0.02, 0.03, 0.04, 0.05, 0.06)
 
 
-class SensitivityReading:
-    def __init__(self, text, payload, key_assumptions, disclosure, assumptions, warnings):
-        self.text = text
-        self.payload = payload
-        self.key_assumptions = key_assumptions
-        self.disclosure = disclosure
-        self.assumptions = assumptions
-        self.warnings = warnings
-        self.mode = "sens"
-        self.implied_growth = None
-
-    def __str__(self):
-        return self.text
+@dataclass(frozen=True, slots=True)
+class SensRow:
+    parameter: str
+    value: float
+    implied_growth: float | None
+    equity_value: float | None
+    versus_target: float | None
+    note: str = ""
 
 
-def run_sensitivity(assumptions, parameter=None, values=None):
-    assumptions.require_equity()
-    base = implied_growth(
-        assumptions.earnings,
-        assumptions.cost_of_equity,
-        assumptions.terminal_growth,
-        assumptions.years,
-        assumptions.payout,
-        assumptions.target(),
-        assumptions.discount_convention,
-    )
-    items, warnings = equity_items(assumptions, base.growth, assumptions.years)
-    pairs = key_pairs(assumptions, base.growth)
-    chosen = _selection(parameter, values)
-    tables = []
-    blocks = []
-    for name, grid in chosen:
-        if name == "growth":
-            table, block = _growth_table(assumptions, grid)
-        else:
-            table, block = _implied_table(assumptions, name, grid)
-        tables.append(table)
-        blocks.append(block)
-    text = join_sections(
-        [
-            header(assumptions),
-            key_block(pairs),
-            *blocks,
-            render_disclosure(items, warnings),
-            "Not a recommendation. Each row moves one input.",
-        ]
-    )
-    payload = {
-        "model": "two_stage_fcfe_gordon",
-        "version": VERSION,
-        "mode": "sens",
-        "key_assumptions": dict(pairs),
-        "tables": tables,
-        "disclosure": {"items": items, "warnings": warnings},
-        "warnings": warnings,
-    }
-    return SensitivityReading(text, payload, dict(pairs), render_disclosure(items, warnings), assumptions, warnings)
+@dataclass(frozen=True, slots=True)
+class SensTable:
+    parameter: str
+    kind: str
+    base: float | None
+    rows: tuple[SensRow, ...]
+    assumptions: Assumptions
+    disclosure: Disclosure
+    target: float | None
+
+    @property
+    def key_assumptions(self) -> dict[str, str]:
+        from whats_priced_in.formatting import key_assumptions_payload
+
+        return key_assumptions_payload(self.assumptions)
+
+    def __str__(self) -> str:
+        from whats_priced_in.formatting import format_sensitivity
+
+        text = format_sensitivity([self])
+        return text[:-1] if text.endswith("\n") else text
 
 
-def _selection(parameter, values):
-    if parameter is None and values is not None:
-        raise ValueError("Pass --parameter with --values.")
-    if parameter is None:
-        return [
-            ("growth", GROWTH_VALUES),
-            ("cost_of_equity", COST_OF_EQUITY_VALUES),
-            ("terminal_growth", TERMINAL_VALUES),
-            ("payout", PAYOUT_VALUES),
-        ]
-    if parameter not in PARAMETER_LABELS:
-        known = ", ".join(PARAMETER_LABELS)
-        raise ValueError(f"Parameter must be one of {known}.")
-    grid = DEFAULT_GRIDS[parameter] if values is None else values
-    return [(parameter, grid)]
+def value_sensitivity(
+    assumptions: Assumptions,
+    growth_rates: tuple[float, ...] | list[float] | None = None,
+) -> SensTable:
+    """Equity value if growth is each rate in the grid. Other inputs stay put."""
 
-
-def _growth_table(assumptions, grid):
-    target = assumptions.target()
-    rows = []
-    lines = [
-        "Value if growth is this, and every other assumption stays put.",
-        "",
-        f"{'growth':<14}{'model value':<24}vs target",
-    ]
-    for growth in grid:
-        _reject_if_percent("growth", growth)
-        valuation = present_value(
-            assumptions.earnings,
-            growth,
-            assumptions.cost_of_equity,
-            assumptions.terminal_growth,
-            assumptions.years,
-            assumptions.payout,
-            assumptions.discount_convention,
-        )
-        versus = (valuation.equity_value - target) / target
+    item = prepare(assumptions)
+    rates = tuple(GROWTH_GRID if growth_rates is None else growth_rates)
+    target = resolve_target(item)
+    rows: list[SensRow] = []
+    anchor: Valuation | None = None
+    for rate in rates:
+        try:
+            valuation = value_growth(rate, item)
+        except ModelError as exc:
+            rows.append(SensRow("growth", float(rate), float(rate), None, None, str(exc)))
+            continue
+        if anchor is None:
+            anchor = valuation
+        versus = None if target is None else valuation.breakdown.equity_value / target - 1.0
         rows.append(
-            {
-                "value": growth,
-                "equity_value": valuation.equity_value,
-                "versus_target": versus,
-                "note": "",
-            }
+            SensRow(
+                parameter="growth",
+                value=float(rate),
+                implied_growth=float(rate),
+                equity_value=valuation.breakdown.equity_value,
+                versus_target=versus,
+            )
         )
-        lines.append(
-            f"{percent(growth):<14}{flow(valuation.equity_value, assumptions):<24}{signed_percent(versus)}"
-        )
-    return {
-        "parameter": "growth",
-        "kind": "forward_value",
-        "base": None,
-        "target": target,
-        "rows": rows,
-    }, "\n".join(lines)
+    if anchor is None:
+        raise ModelError("None of the growth rates could be valued.")
+    disclosure = anchor.disclosure
+    if target is not None:
+        try:
+            disclosure = solve_growth(item, target).disclosure
+        except ModelError:
+            disclosure = anchor.disclosure
+    return SensTable(
+        parameter="growth",
+        kind="value",
+        base=None,
+        rows=tuple(rows),
+        assumptions=item,
+        disclosure=disclosure,
+        target=target,
+    )
 
 
-def _implied_table(assumptions, parameter, grid):
-    label = PARAMETER_LABELS[parameter]
-    base = getattr(assumptions, parameter)
-    target = assumptions.target()
-    rows = []
-    for value in grid:
-        _reject_if_percent(parameter, value)
-        trial = assumptions.replace(**{parameter: value})
-        valuation = implied_growth(
-            trial.earnings,
-            trial.cost_of_equity,
-            trial.terminal_growth,
-            trial.years,
-            trial.payout,
-            trial.target(),
-            trial.discount_convention,
+def implied_growth_sensitivity(
+    assumptions: Assumptions,
+    parameter: str,
+    values: tuple[float, ...] | list[float] | None = None,
+) -> SensTable:
+    """Implied growth if one discount or payout assumption changes.
+
+    The price and the earnings stay put. ``parameter`` is ``cost_of_equity``,
+    ``terminal_growth``, ``payout``, or ``years``.
+    """
+
+    item = prepare(assumptions)
+    if parameter not in {"cost_of_equity", "terminal_growth", "payout", "years"}:
+        raise ModelError(
+            "Sensitivity parameter must be cost_of_equity, terminal_growth, payout, or years."
         )
+    grid = tuple(values) if values is not None else _default_grid(item, parameter)
+    target = resolve_target(item)
+    if target is None:
+        raise ModelError("Implied-growth sensitivity needs a price or a market cap.")
+    rows: list[SensRow] = []
+    try:
+        disclosure = solve_growth(item, target).disclosure
+    except ModelError:
+        disclosure = None
+    for raw in grid:
+        trial, note = _with_parameter(item, parameter, raw)
+        if trial is None:
+            rows.append(SensRow(parameter, float(raw), None, None, None, note))
+            continue
+        try:
+            solved = solve_growth(trial, target=target)
+        except ModelError as exc:
+            rows.append(SensRow(parameter, float(raw), None, None, None, str(exc)))
+            continue
+        if disclosure is None:
+            disclosure = solved.disclosure
         rows.append(
-            {
-                "value": value,
-                "implied_growth": valuation.growth,
-                "equity_value": valuation.equity_value,
-                "versus_target": valuation.equity_value - trial.target(),
-                "note": "",
-            }
+            SensRow(
+                parameter=parameter,
+                value=float(raw),
+                implied_growth=solved.implied_growth,
+                equity_value=solved.breakdown.equity_value,
+                versus_target=solved.breakdown.equity_value / target - 1.0,
+                note=note,
+            )
         )
-    lines = [
-        f"Implied growth if {label} changes. Price and earnings stay put.",
-        f"Base {label}: {percent(base)}.",
-        "",
-        f"{'value':<14}implied growth",
-    ]
-    for row in rows:
-        lines.append(f"{percent(row['value']):<14}{percent(row['implied_growth'])}")
-    return {
-        "parameter": parameter,
-        "kind": "implied_growth",
-        "base": base,
-        "target": target,
-        "rows": rows,
-    }, "\n".join(lines)
+    if disclosure is None:
+        # Every row failed. Still disclose the base assumptions.
+        disclosure = value_growth(item.terminal_growth, item).disclosure
+    base = {
+        "cost_of_equity": item.cost_of_equity,
+        "terminal_growth": item.terminal_growth,
+        "payout": item.payout,
+        "years": float(item.years),
+    }[parameter]
+    return SensTable(
+        parameter=parameter,
+        kind="implied_growth",
+        base=base,
+        rows=tuple(rows),
+        assumptions=item,
+        disclosure=disclosure,
+        target=target,
+    )
 
 
-def _reject_if_percent(parameter, value):
-    if parameter != "payout" and abs(value) >= 1:
-        raise ValueError(f"Rates are decimals: 0.11, not 11. {PARAMETER_LABELS[parameter]} is {value}.")
-    if parameter == "payout" and (value < 0 or value > 1):
-        raise ValueError("Payout is a decimal from 0 to 1. 100% is 1, not 100.")
+def _default_grid(item: Assumptions, parameter: str) -> tuple[float, ...]:
+    if parameter == "cost_of_equity":
+        rates = tuple(item.cost_of_equity + step for step in (-0.02, -0.01, 0.0, 0.01, 0.02))
+        return tuple(rate for rate in rates if rate > item.terminal_growth and 0 < rate < 1)
+    if parameter == "terminal_growth":
+        return tuple(rate for rate in TERMINAL_GRID if rate < item.cost_of_equity)
+    if parameter == "payout":
+        return PAYOUT_GRID
+    horizons = [5, 10, 15, 20]
+    if item.years not in horizons:
+        horizons.append(item.years)
+    return tuple(sorted(set(horizons)))
+
+
+def _with_parameter(item: Assumptions, parameter: str, raw: float) -> tuple[Assumptions | None, str]:
+    if parameter == "years":
+        if int(raw) != raw or raw < 1 or raw > 100:
+            return None, "years must be an integer from 1 to 100."
+        return replace(item, years=int(raw)), ""
+    if parameter == "cost_of_equity":
+        if raw <= item.terminal_growth or raw <= 0 or raw >= 1:
+            return None, "cost of equity must exceed terminal growth and be a decimal below 1."
+        return replace(item, cost_of_equity=raw), ""
+    if parameter == "terminal_growth":
+        if raw >= item.cost_of_equity or raw <= -0.5 or raw >= 1:
+            return None, "terminal growth must be a decimal below the cost of equity."
+        return replace(item, terminal_growth=raw), ""
+    if raw < 0 or raw > 5:
+        return None, "payout must be a fraction of earnings."
+    return replace(item, payout=raw), ""

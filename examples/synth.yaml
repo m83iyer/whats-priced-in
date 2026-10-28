@@ -1,6 +1,7 @@
+# Fictional. Not a security and not a recommendation.
+# Per share, US dollars. Trailing margin is 8 / 40 = 20%.
 ticker: SYNTH
 name: Synthetic Holdings
-notes: Fictional company used in the documentation. Not a security and not a recommendation.
 currency: USD
 scale: unit
 price: 150
@@ -11,4 +12,6 @@ terminal_growth: 0.04
 years: 10
 payout: 1
 earnings_basis: fcfe
+discount_convention: end_of_year
 tax_rate: 0.21
+notes: Fictional company used in the documentation. Not a security and not a recommendation.

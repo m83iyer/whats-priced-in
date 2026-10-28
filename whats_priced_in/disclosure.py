@@ -1,151 +1,206 @@
-"""The six disclosures. Tax is stated and not applied."""
+"""Disclosure objects. Tax, payout, terminal, timing, basis, and scale stay visible."""
 
-from whats_priced_in.model import PAYOUT_WARNING, payout_warning
-from whats_priced_in.scale import BASIS_LABELS, SCALE_DETAIL
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from whats_priced_in.assumptions import Assumptions, unit_mode
+from whats_priced_in.errors import ModelError
+from whats_priced_in.scales import SCALE_NOTES
+
+REQUIRED_KEYS = ("basis", "payout", "terminal", "timing", "tax", "scale")
+
+UNFUNDED_GROWTH = (
+    "Payout is at or above 95% while growth is above the terminal rate. "
+    "The model does not use retained earnings to fund that growth. "
+    "That fits an asset-light business, or earnings that are already net of the reinvestment you believe. "
+    "If growth needs reinvestment, lower the payout."
+)
+
+PAYOUT_ABOVE_EARNINGS = (
+    "Payout is above 100%. Cash to equity exceeds earnings in every year "
+    "(borrowing or asset sales). The model uses the figure as given."
+)
+
+TERMINAL_HEAVY = (
+    "More than 75% of the value is the terminal perpetuity. "
+    "The explicit years are not doing much of the work."
+)
+
+HIGH_TERMINAL_GROWTH = (
+    "Terminal growth is above 8%. That is faster than many long-run nominal economies. "
+    "It is allowed, and it is doing a lot of quiet work."
+)
+
+HIGH_COST_OF_EQUITY = (
+    "Cost of equity is 25% or higher. Check that you passed a decimal (0.25, not 25) "
+    "and that you mean a rate this high."
+)
 
 
-def percent(rate):
-    return f"{rate * 100:.2f}%"
+@dataclass(frozen=True, slots=True)
+class DisclosureItem:
+    key: str
+    title: str
+    text: str
 
 
-def basis_label(assumptions):
-    return BASIS_LABELS[assumptions.earnings_basis]
+@dataclass(frozen=True, slots=True)
+class Disclosure:
+    items: tuple[DisclosureItem, ...]
+    warnings: tuple[str, ...] = ()
+
+    def text_for(self, key: str) -> str:
+        for item in self.items:
+            if item.key == key:
+                return item.text
+        raise KeyError(key)
+
+    def with_warnings(self, warnings: tuple[str, ...]) -> "Disclosure":
+        return Disclosure(items=self.items, warnings=warnings)
 
 
-def timing_label(assumptions):
-    if assumptions.discount_convention == "mid_year":
-        return "mid-year"
-    return "end of year"
+def complete(disclosure: Disclosure) -> Disclosure:
+    keys = [item.key for item in disclosure.items]
+    missing = [key for key in REQUIRED_KEYS if key not in keys]
+    if missing:
+        raise ModelError(f"Disclosure is missing {missing}. This is a bug in the library.")
+    if len(keys) != len(set(keys)):
+        raise ModelError("Disclosure repeats a key. This is a bug in the library.")
+    return disclosure
 
 
-def scale_label(assumptions):
-    if assumptions.per_share and assumptions.scale == "unit":
-        return f"{assumptions.currency} per share"
-    if assumptions.per_share:
-        return f"{assumptions.currency} {assumptions.scale}"
-    return f"{assumptions.currency} {assumptions.scale}"
+def growth_disclosure(assumptions: Assumptions) -> Disclosure:
+    """The six items for the two-stage cash-flow model, before solve-specific warnings."""
 
-
-def terminal_label(assumptions):
-    return f"Gordon {percent(assumptions.terminal_growth)}"
-
-
-def tax_label(assumptions):
-    if assumptions.tax_rate is None:
-        return "not applied"
-    return f"{percent(assumptions.tax_rate)} disclosed, not applied"
-
-
-def equity_items(assumptions, growth, years_text):
-    """Six disclosure essays plus the rows that sit under them."""
-    basis = assumptions.earnings_basis
-    if basis == "pat":
-        basis_text = (
-            "The starting figure is profit after tax. Payout converts PAT into cash flow to equity. "
-            "At 100%, PAT is treated as distributable cash."
-        )
-    elif basis == "ffo":
-        basis_text = (
-            "The starting figure is funds from operations, before the payout scalar. "
-            "Payout then scales it."
-        )
-    elif basis == "owner_earnings":
-        basis_text = (
-            "The starting figure is owner earnings, before the payout scalar. Payout then scales it."
-        )
-    else:
-        basis_text = (
-            "The starting figure is free cash flow to equity, before the payout scalar. "
-            "Payout then scales it. At 100%, that FCFE is discounted as given. A lower payout haircuts it."
-        )
-
-    if assumptions.payout == 1:
-        payout_text = (
-            "Payout is 100.00% of each year's earnings, treated as cash flow to equity. "
-            "This is not a dividend forecast. Nothing is retained inside the model."
-        )
-        if basis == "pat":
-            payout_text += " PAT is treated as fully distributable."
-    else:
-        retained = percent(1 - assumptions.payout)
-        payout_text = (
-            f"Payout is {percent(assumptions.payout)} of each year's earnings, treated as cash flow to equity. "
-            "This is not a dividend forecast. "
-            f"The model retains {retained} of earnings, and that retention is not what funds the growth. "
-            "Growth is an assumption on the earnings base."
-        )
-
-    year_n = years_text if isinstance(years_text, int) else assumptions.years
-    terminal_text = (
-        "Terminal value is a Gordon growth perpetuity. "
-        f"The cash flow in year {year_n} grows once more at {percent(assumptions.terminal_growth)} "
-        "and is capitalised at cost of equity minus terminal growth "
-        f"({percent(assumptions.cost_of_equity)} - {percent(assumptions.terminal_growth)}). "
+    item = assumptions
+    basis = _basis_text(item)
+    payout = _payout_text(item)
+    terminal = (
+        f"Terminal value is a Gordon growth perpetuity. The cash flow in year {item.years} "
+        f"grows once more at {item.terminal_growth:.2%} and is capitalised at "
+        f"cost of equity minus terminal growth "
+        f"({item.cost_of_equity:.2%} - {item.terminal_growth:.2%}). "
         "There is no fade inside the perpetuity."
     )
-    if assumptions.discount_convention == "mid_year":
-        timing_text = (
-            "Cash flows are discounted to mid-year. The year-end value is multiplied by (1+r)^0.5. "
-            "The terminal value is dated at the final year-end and then brought forward by that same half year."
-        )
-    else:
-        timing_text = (
+    if item.discount_convention == "end_of_year":
+        timing = (
             "Cash flows are dated at each year-end and discounted for that many full years. "
             "The terminal value is dated at the same final year-end."
         )
-    if assumptions.tax_rate is None:
-        tax_text = (
-            "Tax is not applied inside the model. The earnings input is taken as already after tax."
+    else:
+        timing = (
+            "Mid-year convention. The year-end present value, explicit cash flows and terminal "
+            "together, is multiplied by (1 + cost of equity) ^ 0.5. "
+            "That is the whole adjustment. Cash flows are not redated individually."
+        )
+    if item.tax_rate is None:
+        tax = (
+            "Tax is not applied inside the model. The earnings input is taken as already after tax. "
+            "No tax rate was supplied."
         )
     else:
-        tax_text = (
+        tax = (
             "Tax is not applied inside the model. The earnings input is taken as already after tax. "
-            f"A tax rate of {percent(assumptions.tax_rate)} is disclosed and not reapplied. "
+            f"A tax rate of {item.tax_rate:.2%} is disclosed and not reapplied. "
             "Changing it does not move the value."
         )
-    detail = SCALE_DETAIL[assumptions.scale]
-    if assumptions.per_share:
-        scale_text = (
-            f"Per-share mode. Price and earnings are per share, in {assumptions.currency}. "
-            f"Scale is {assumptions.scale} ({detail}). No share count was applied."
+    scale = _scale_text(item)
+    disclosure = Disclosure(
+        items=(
+            DisclosureItem("basis", "Basis", basis),
+            DisclosureItem("payout", "Payout", payout),
+            DisclosureItem("terminal", "Terminal", terminal),
+            DisclosureItem("timing", "Timing", timing),
+            DisclosureItem("tax", "Tax", tax),
+            DisclosureItem("scale", "Scale", scale),
         )
-    else:
-        scale_text = (
-            f"Aggregate mode. Earnings and the target are both in {assumptions.currency} {assumptions.scale} "
-            f"({detail}). A share count, if set, is in that same scale: crore shares when the scale is crore, "
-            "millions of shares when the scale is million. Market cap = price × shares, in that scale. "
-            "The engine does not multiply by the scale factor."
+    )
+    return complete(disclosure)
+
+
+def growth_warnings(
+    assumptions: Assumptions,
+    growth: float,
+    terminal_share: float,
+) -> tuple[str, ...]:
+    warnings: list[str] = []
+    if assumptions.payout > 1:
+        warnings.append(PAYOUT_ABOVE_EARNINGS)
+    if assumptions.payout >= 0.95 and growth > assumptions.terminal_growth + 1e-12:
+        warnings.append(UNFUNDED_GROWTH)
+    if terminal_share > 0.75:
+        warnings.append(TERMINAL_HEAVY)
+    if assumptions.terminal_growth > 0.08:
+        warnings.append(HIGH_TERMINAL_GROWTH)
+    if assumptions.cost_of_equity >= 0.25:
+        warnings.append(HIGH_COST_OF_EQUITY)
+    if assumptions.earnings < 0:
+        warnings.append(
+            "Earnings are negative. A higher growth rate makes the losses larger, "
+            "so value falls as growth rises. Implied growth is not solved in that case."
         )
-    items = [
-        {"key": "basis", "title": "Basis", "text": basis_text},
-        {"key": "payout", "title": "Payout", "text": payout_text},
-        {"key": "terminal", "title": "Terminal", "text": terminal_text},
-        {"key": "timing", "title": "Timing", "text": timing_text},
-        {"key": "tax", "title": "Tax", "text": tax_text},
-        {"key": "scale", "title": "Scale", "text": scale_text},
-    ]
-    warning = payout_warning(assumptions.payout, growth, assumptions.terminal_growth)
-    warnings = [warning] if warning else []
-    return items, warnings
+    return tuple(warnings)
 
 
-def render_disclosure(items, warnings, heading="Disclosure"):
-    lines = [heading]
-    for item in items:
-        lines.append(f"  {item['key']:<10}{item['text']}")
-    lines.append("Warnings")
-    if not warnings:
-        lines.append("  none")
+def _basis_text(item: Assumptions) -> str:
+    texts = {
+        "fcfe": (
+            "The starting figure is free cash flow to equity, before the payout scalar. "
+            "Payout then scales it. At 100%, that FCFE is discounted as given. "
+            "A lower payout haircuts it."
+        ),
+        "pat": (
+            "The starting figure is profit after tax. Payout converts PAT into cash flow to equity. "
+            "At 100%, PAT is treated as distributable cash."
+        ),
+        "ffo": (
+            "The starting figure is funds from operations. Payout converts FFO into the "
+            "distribution the model discounts."
+        ),
+        "owner_earnings": (
+            "The starting figure is owner earnings. Payout is the fraction treated as cash to the owner."
+        ),
+    }
+    return texts[item.earnings_basis]
+
+
+def _payout_text(item: Assumptions) -> str:
+    if item.payout >= 0.999 and item.payout <= 1.001:
+        retained = "Nothing is retained inside the model."
+    elif item.payout > 1:
+        retained = "Cash to equity exceeds earnings, so retention is negative."
     else:
-        for warning in warnings:
-            lines.append(f"  {warning}")
-    return "\n".join(lines)
+        retained = (
+            f"The model retains {1.0 - item.payout:.2%} of earnings, and that retention is not "
+            "what funds the growth. Growth is an assumption on the earnings base."
+        )
+    text = (
+        f"Payout is {item.payout:.2%} of each year's earnings, treated as cash flow to equity. "
+        "This is not a dividend forecast. "
+        f"{retained}"
+    )
+    if item.earnings_basis == "pat" and item.payout >= 0.999:
+        text += " PAT is treated as fully distributable."
+    return text
 
 
-def warning_or_empty(payout, growth, terminal_growth):
-    text = payout_warning(payout, growth, terminal_growth)
-    return [text] if text else []
-
-
-# Re-exported so callers can mention the canonical sentence.
-CANONICAL_PAYOUT_WARNING = PAYOUT_WARNING
+def _scale_text(item: Assumptions) -> str:
+    note = SCALE_NOTES[item.scale]
+    mode = unit_mode(item)
+    if mode == "per_share":
+        return (
+            f"Per-share mode. Price and earnings are per share, in {item.currency}. "
+            f"Scale is {item.scale} ({note}). No share count was applied."
+        )
+    if mode == "aggregate":
+        return (
+            f"Aggregate mode. Earnings and the target are both in {item.currency} {item.scale} "
+            f"({note}). A share count, if set, is in that same scale: "
+            "crore shares when the scale is crore, millions of shares when the scale is million. "
+            "Market cap = price × shares, in that scale. The engine does not multiply by the scale factor."
+        )
+    return (
+        f"No price was set. The value is in the same units as earnings: {item.currency} {item.scale} "
+        f"({note})."
+    )

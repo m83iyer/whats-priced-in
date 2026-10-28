@@ -1,6 +1,6 @@
+# Same story after a fictional print: earnings 8.00 to 8.80, revenue 40 to 44. Price unchanged.
 ticker: SYNTH
 name: Synthetic Holdings
-notes: Fictional company used in the documentation. Not a security and not a recommendation.
 currency: USD
 scale: unit
 price: 150
@@ -11,4 +11,6 @@ terminal_growth: 0.04
 years: 10
 payout: 1
 earnings_basis: fcfe
+discount_convention: end_of_year
 tax_rate: 0.21
+notes: Fictional company used in the documentation. Not a security and not a recommendation.

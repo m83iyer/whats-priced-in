@@ -1,6 +1,7 @@
+# Fictional UAE case. Not a security.
+# Figures are AED million. Payout is 80%, so some earnings are retained in the story.
 ticker: CREEK
 name: Creek Synthetic
-notes: Fictional UAE case. Earnings and market cap are AED million. Not a security.
 currency: AED
 scale: million
 market_cap: 2500
@@ -10,4 +11,6 @@ terminal_growth: 0.03
 years: 10
 payout: 0.8
 earnings_basis: fcfe
+discount_convention: end_of_year
 tax_rate: 0.09
+notes: Fictional UAE case. Earnings and market cap are AED million. Not a security.

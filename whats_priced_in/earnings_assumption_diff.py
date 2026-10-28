@@ -1,263 +1,153 @@
-"""Pre vs post earnings assumption diff."""
+"""What changed between two assumption sets, and what that does to the implied bet.
 
-from whats_priced_in.disclosure import equity_items, percent, render_disclosure
-from whats_priced_in.model import VERSION, implied_growth, present_value
-from whats_priced_in.render import flow, join_sections, key_pairs, signed_flow
+Load a pre-earnings file and a post-earnings file. The change table lists every
+field that moved, and whether that field enters the constant-growth solve.
+Revenue, tax, and the earnings basis are disclosed. They do not move implied
+growth. Tax is never reapplied.
 
-GROWTH_INPUTS = [
-    "cost_of_equity",
-    "discount_convention",
-    "earnings",
-    "market_cap",
-    "payout",
-    "price",
-    "shares",
-    "terminal_growth",
-    "years",
-]
+The value comparison holds growth at the pre-earnings implied rate and revalues
+each set under its own other assumptions. If only the earnings base changed,
+the value moves in proportion to earnings, because the model is linear in that
+base.
+"""
 
-_FIELD_ORDER = [
-    "ticker",
-    "name",
-    "notes",
-    "currency",
-    "scale",
-    "price",
-    "shares",
-    "market_cap",
-    "earnings",
-    "revenue",
-    "revenue_growth",
-    "cost_of_equity",
-    "terminal_growth",
-    "years",
-    "payout",
-    "earnings_basis",
-    "tax_rate",
-    "discount_convention",
-    "dividend",
-    "dividend_timing",
-]
+from __future__ import annotations
 
-_MONEY_FIELDS = {"price", "earnings", "revenue", "market_cap", "dividend"}
-_RATE_FIELDS = {"cost_of_equity", "terminal_growth", "payout", "revenue_growth", "tax_rate"}
+from dataclasses import dataclass, fields
 
-_EXPLANATION = (
-    "Value is the model at the pre-earnings implied growth, under each set's own other assumptions. "
-    "Revenue is not an input to that solve. The model is linear in the earnings base, so the value moves "
-    "with earnings when the other growth inputs stay put."
-)
+from whats_priced_in.assumptions import GROWTH_INPUTS, Assumptions, prepare, resolve_target, unit_mode
+from whats_priced_in.dcf import solve_growth, value_growth
+from whats_priced_in.disclosure import Disclosure
+from whats_priced_in.errors import ModelError
 
 
-class DiffReading:
-    def __init__(self, text, payload, key_assumptions_before, key_assumptions_after, disclosure, before, after, changes):
-        self.text = text
-        self.payload = payload
-        self.key_assumptions = key_assumptions_before
-        self.key_assumptions_before = key_assumptions_before
-        self.key_assumptions_after = key_assumptions_after
-        self.disclosure = disclosure
-        self.assumptions = before
-        self.before = before
-        self.after = after
-        self.changes = changes
-        self.mode = "diff"
-        self.warnings = payload.get("warnings", [])
-        self.implied_growth = payload["implied_growth_before"]
-        self.growth_before = payload["implied_growth_before"]
-        self.growth_after = payload["implied_growth_after"]
-        self.value_before = payload["value_before"]
-        self.value_after = payload["value_after"]
-
-    def __str__(self):
-        return self.text
+@dataclass(frozen=True, slots=True)
+class FieldChange:
+    field: str
+    before: object
+    after: object
+    affects_implied_growth: bool
 
 
-def diff_assumptions(before, after):
-    before.require_equity()
-    after.require_equity()
-    solved_before = implied_growth(
-        before.earnings,
-        before.cost_of_equity,
-        before.terminal_growth,
-        before.years,
-        before.payout,
-        before.target(),
-        before.discount_convention,
+@dataclass(frozen=True, slots=True)
+class DiffResult:
+    changes: tuple[FieldChange, ...]
+    implied_growth_before: float
+    implied_growth_after: float
+    delta_implied_growth: float
+    reference_growth: float
+    value_before: float
+    value_after: float
+    delta_value: float | None
+    values_comparable: bool
+    target_before: float
+    target_after: float
+    before: Assumptions
+    after: Assumptions
+    disclosure_before: Disclosure
+    disclosure_after: Disclosure
+
+    @property
+    def key_assumptions(self) -> dict[str, dict[str, str]]:
+        from whats_priced_in.formatting import key_assumptions_payload
+
+        return {
+            "before": key_assumptions_payload(self.before),
+            "after": key_assumptions_payload(self.after),
+        }
+
+    def __str__(self) -> str:
+        from whats_priced_in.formatting import format_diff
+
+        text = format_diff(self)
+        return text[:-1] if text.endswith("\n") else text
+
+
+def diff_assumptions(
+    before: Assumptions,
+    after: Assumptions,
+    reference_growth: float | None = None,
+    price: float | None = None,
+) -> DiffResult:
+    """Compare two prepared assumption sets at the same price, unless they carry their own.
+
+    ``price`` overrides the price on both sets. Share counts and market caps are
+    left as each file wrote them. If you override the price and a share count
+    is set, the target becomes price times shares, and it is checked against a
+    stated market cap.
+    """
+
+    left = prepare(before)
+    right = prepare(after)
+    if price is not None:
+        left = prepare(_override_price(left, price))
+        right = prepare(_override_price(right, price))
+
+    changes = tuple(_changes(left, right))
+    solved_before = solve_growth(left)
+    solved_after = solve_growth(right)
+    anchor = solved_before.implied_growth if reference_growth is None else reference_growth
+    value_before = value_growth(anchor, left).breakdown.equity_value
+    value_after = value_growth(anchor, right).breakdown.equity_value
+    comparable = _comparable(left, right)
+    target_before = resolve_target(left)
+    target_after = resolve_target(right)
+    if target_before is None or target_after is None:
+        raise ModelError("Both assumption sets need a price or a market cap.")
+    return DiffResult(
+        changes=changes,
+        implied_growth_before=solved_before.implied_growth,
+        implied_growth_after=solved_after.implied_growth,
+        delta_implied_growth=solved_after.implied_growth - solved_before.implied_growth,
+        reference_growth=anchor,
+        value_before=value_before,
+        value_after=value_after,
+        delta_value=(value_after - value_before) if comparable else None,
+        values_comparable=comparable,
+        target_before=target_before,
+        target_after=target_after,
+        before=left,
+        after=right,
+        disclosure_before=solved_before.disclosure,
+        disclosure_after=solved_after.disclosure,
     )
-    solved_after = implied_growth(
-        after.earnings,
-        after.cost_of_equity,
-        after.terminal_growth,
-        after.years,
-        after.payout,
-        after.target(),
-        after.discount_convention,
-    )
-    valued_after = present_value(
-        after.earnings,
-        solved_before.growth,
-        after.cost_of_equity,
-        after.terminal_growth,
-        after.years,
-        after.payout,
-        after.discount_convention,
-    )
-    items_before, warnings_before = equity_items(before, solved_before.growth, before.years)
-    items_after, warnings_after = equity_items(after, solved_after.growth, after.years)
-    pairs_before = key_pairs(before, solved_before.growth)
-    pairs_after = key_pairs(after, solved_after.growth)
-    changes = _changes(before, after)
-    table = [_columns("field", "before", "after", "change", "role")]
-    for change in changes:
-        table.append(
-            _columns(
-                change["field"],
-                _format_side(before, change["field"], change["before"]),
-                _format_side(after, change["field"], change["after"]),
-                _format_delta(before, change),
-                "moves implied growth" if change["affects_implied_growth"] else "disclosed only",
+
+
+def _override_price(item: Assumptions, price: float) -> Assumptions:
+    from dataclasses import replace
+
+    if item.market_cap is not None and item.shares is None:
+        raise ModelError(
+            "A price override needs a per-share file, or a file with a share count. "
+            "This file has a market cap and no shares, so the override would not know the new market cap."
+        )
+    market_cap = item.market_cap
+    if item.shares is not None:
+        market_cap = price * item.shares
+    return replace(item, price=price, market_cap=market_cap)
+
+
+def _changes(before: Assumptions, after: Assumptions) -> list[FieldChange]:
+    found: list[FieldChange] = []
+    for field in fields(Assumptions):
+        left = getattr(before, field.name)
+        right = getattr(after, field.name)
+        if left == right:
+            continue
+        found.append(
+            FieldChange(
+                field=field.name,
+                before=left,
+                after=right,
+                affects_implied_growth=field.name in GROWTH_INPUTS,
             )
         )
-    summary = [
-        _columns(
-            "implied growth",
-            percent(solved_before.growth),
-            percent(solved_after.growth),
-            f"{(solved_after.growth - solved_before.growth) * 100:.2f} pp",
-        ),
-        _columns(
-            f"value at {percent(solved_before.growth)}",
-            flow(solved_before.equity_value, before),
-            flow(valued_after.equity_value, after),
-            signed_flow(valued_after.equity_value - solved_before.equity_value, before),
-        ),
-    ]
-    essay_before = render_disclosure(items_before, warnings_before)
-    essay_after = render_disclosure(items_after, warnings_after)
-    if essay_before == essay_after:
-        disclosure = render_disclosure(items_before, warnings_before, heading="Disclosure (same on both sides)")
-        warnings = warnings_before
-    else:
-        disclosure = essay_before.replace("Disclosure", "Disclosure (before)", 1) + "\n" + essay_after.replace(
-            "Disclosure", "Disclosure (after)", 1
-        )
-        warnings = warnings_before
-    identity = before.ticker if not before.name else f"{before.ticker} · {before.name}"
-    text = join_sections(
-        [
-            "what's priced in · earnings assumption diff",
-            identity,
-            "\n".join(table),
-            "\n".join(summary),
-            _key_table(pairs_before, pairs_after),
-            _EXPLANATION,
-            disclosure,
-            "Not a recommendation. A diff of two assumption sets, not a reaction to a headline.",
-        ]
-    )
-    comparable = before.currency == after.currency and before.scale == after.scale and before.per_share == after.per_share
-    payload = {
-        "model": "earnings_assumption_diff",
-        "version": VERSION,
-        "changes": [
-            {
-                "field": change["field"],
-                "before": change["before"],
-                "after": change["after"],
-                "affects_implied_growth": change["affects_implied_growth"],
-            }
-            for change in changes
-        ],
-        "implied_growth_before": solved_before.growth,
-        "implied_growth_after": solved_after.growth,
-        "delta_implied_growth": solved_after.growth - solved_before.growth,
-        "key_assumptions_before": dict(pairs_before),
-        "key_assumptions_after": dict(pairs_after),
-        "reference_growth": solved_before.growth,
-        "value_before": solved_before.equity_value,
-        "value_after": valued_after.equity_value,
-        "delta_value": valued_after.equity_value - solved_before.equity_value,
-        "values_comparable": comparable,
-        "target_before": before.target(),
-        "target_after": after.target(),
-        "disclosure_before": {"items": items_before, "warnings": warnings_before},
-        "disclosure_after": {"items": items_after, "warnings": warnings_after},
-        "growth_inputs": list(GROWTH_INPUTS),
-    }
-    reading = DiffReading(
-        text,
-        payload,
-        dict(pairs_before),
-        dict(pairs_after),
-        disclosure,
-        before,
-        after,
-        changes,
-    )
-    reading.warnings = warnings
-    return reading
-
-
-def _changes(before, after):
-    found = []
-    for field in _FIELD_ORDER:
-        left = getattr(before, field)
-        right = getattr(after, field)
-        if left != right:
-            found.append(
-                {
-                    "field": field,
-                    "before": left,
-                    "after": right,
-                    "affects_implied_growth": field in GROWTH_INPUTS,
-                }
-            )
     return found
 
 
-def _format_side(assumptions, field, value):
-    if value is None:
-        return "none"
-    if field in _MONEY_FIELDS:
-        return flow(value, assumptions)
-    if field in _RATE_FIELDS:
-        return percent(value)
-    if field == "shares":
-        return f"{value:,.2f} {assumptions.scale}"
-    return str(value)
-
-
-def _format_delta(assumptions, change):
-    before = change["before"]
-    after = change["after"]
-    if isinstance(before, (int, float)) and isinstance(after, (int, float)):
-        delta = after - before
-        if change["field"] in _MONEY_FIELDS:
-            return signed_flow(delta, assumptions)
-        if change["field"] in _RATE_FIELDS:
-            return f"{delta * 100:+.2f} pp" if delta < 0 or delta > 0 else "0.00 pp"
-        if isinstance(before, float) or isinstance(after, float):
-            return f"{delta:+.2f}"
-        return f"{delta:+d}" if delta else "0"
-    return "changed"
-
-
-def _columns(label, before, after, change, role=""):
-    row = f"{label:<22}{before:<22}{after:<22}{change:<18}{role}"
-    if not role:
-        return row.rstrip()
-    return row
-
-
-def _key_table(before_pairs, after_pairs):
-    after_map = dict(after_pairs)
-    lines = ["Key assumptions", f"{'assumption':<16}{'before':<31}after"]
-    seen = set()
-    for key, value in before_pairs:
-        lines.append(f"{key:<16}{value:<31}{after_map.get(key, '')}")
-        seen.add(key)
-    for key, value in after_pairs:
-        if key not in seen:
-            lines.append(f"{key:<16}{'':<31}{value}")
-    return "\n".join(lines)
+def _comparable(before: Assumptions, after: Assumptions) -> bool:
+    return (
+        before.currency == after.currency
+        and before.scale == after.scale
+        and unit_mode(before) == unit_mode(after)
+    )

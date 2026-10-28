@@ -1,11 +1,13 @@
+# Fictional REIT-style reading. Not a security and not a view on any listed fund.
+# The dividend is next year's promised distribution, not a trailing one.
 ticker: WHARF
 name: Wharf Synthetic REIT
-notes: Fictional REIT-style case. Price, promised dividend, and FFO only. Not a security.
 currency: USD
 scale: unit
 price: 100
-dividend: 6.5
+annual_dividend: 6.5
+dividend_timing: next
 earnings: 8
 earnings_basis: ffo
 cost_of_equity: 0.10
-dividend_timing: forward
+notes: Fictional REIT-style case. Price, promised dividend, and FFO only. Not a security.
