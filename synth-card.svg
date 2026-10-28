@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="586" viewBox="0 0 960 586" role="img">
+  <title>What's priced in — SYNTH 7.17%</title>
+  <desc>Reverse two-stage FCFE reading. 7.17% constant growth. Not a recommendation.</desc>
+  <rect width="960" height="586" fill="#f3efe6"/>
+  <rect width="8" height="586" fill="#9c3418"/>
+  <text x="48" y="46" fill="#9c3418" font-family="Helvetica, Arial, sans-serif" font-size="13" letter-spacing="2.4">WHAT'S PRICED IN</text>
+  <text x="912" y="46" fill="#5e584e" font-family="Helvetica, Arial, sans-serif" font-size="13" text-anchor="end">USD · per share</text>
+  <text x="48" y="108" fill="#1c1915" font-family="Palatino, 'Palatino Linotype', Georgia, serif" font-size="42">SYNTH</text>
+  <text x="48" y="138" fill="#5e584e" font-family="Palatino, 'Palatino Linotype', Georgia, serif" font-size="16">Synthetic Holdings</text>
+  <text x="48" y="230" fill="#1c1915" font-family="Palatino, 'Palatino Linotype', Georgia, serif" font-size="84">7.17%</text>
+  <text x="48" y="262" fill="#5e584e" font-family="Palatino, 'Palatino Linotype', Georgia, serif" font-size="16">constant earnings growth the price assumes</text>
+  <g font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#5e584e"><line x1="560" y1="229.9" x2="900" y2="229.9" stroke="#1f6b4a" stroke-dasharray="3 3"/><polyline fill="none" stroke="#1c1915" stroke-width="1.6" points="560.0,261.7 581.2,258.3 602.5,254.5 623.8,250.5 645.0,246.1 666.2,241.4 687.5,236.4 708.8,230.9 730.0,225.0 751.2,218.7 772.5,211.8 793.8,204.4 815.0,196.5 836.2,188.0 857.5,178.8 878.8,168.9 900.0,158.3"/><circle cx="712.5" cy="229.9" r="4.5" fill="#9c3418"/><text x="560" y="286">0%</text><text x="900" y="286" text-anchor="end">16%</text><text x="900" y="142" text-anchor="end">value vs growth</text></g>
+  <line x1="48" y1="300" x2="912" y2="300" stroke="#d9d2c5"/>
+  <text x="48" y="334" fill="#5e584e" font-family="Helvetica, Arial, sans-serif" font-size="12">PRICE</text>
+  <text x="48" y="360" fill="#1c1915" font-family="Palatino, 'Palatino Linotype', Georgia, serif" font-size="20">$150.00</text>
+  <text x="300" y="334" fill="#5e584e" font-family="Helvetica, Arial, sans-serif" font-size="12">EARNINGS NOW</text>
+  <text x="300" y="360" fill="#1c1915" font-family="Palatino, 'Palatino Linotype', Georgia, serif" font-size="20">$8.00</text>
+  <text x="560" y="334" fill="#5e584e" font-family="Helvetica, Arial, sans-serif" font-size="12">YEAR 10</text>
+  <text x="560" y="360" fill="#1c1915" font-family="Palatino, 'Palatino Linotype', Georgia, serif" font-size="20">$16.00</text>
+  <text x="780" y="334" fill="#5e584e" font-family="Helvetica, Arial, sans-serif" font-size="12">TERMINAL SHARE</text>
+  <text x="780" y="360" fill="#1c1915" font-family="Palatino, 'Palatino Linotype', Georgia, serif" font-size="20">55.80%</text>
+  <line x1="48" y1="390" x2="912" y2="390" stroke="#d9d2c5"/>
+  <text x="48" y="422" fill="#1c1915" font-family="Helvetica, Arial, sans-serif" font-size="14">Explicit $66.30 · terminal $83.70</text>
+  <text x="48" y="448" fill="#1c1915" font-family="Helvetica, Arial, sans-serif" font-size="13">Key assumptions</text><text x="48" y="468" fill="#5e584e" font-family="Helvetica, Arial, sans-serif" font-size="13">basis FCFE · payout 100.00% · terminal Gordon 4.00%</text><text x="48" y="488" fill="#5e584e" font-family="Helvetica, Arial, sans-serif" font-size="13">timing end of year · tax 21.00% disclosed, not applied · scale USD per share</text><text x="48" y="508" fill="#5e584e" font-family="Helvetica, Arial, sans-serif" font-size="13">cost of equity 11.00% · explicit years 10 · earnings $8.00</text>
+  <text x="48" y="534" fill="#9c3418" font-family="Helvetica, Arial, sans-serif" font-size="13">Flag: growth is not funded by retained cash in this model.</text>
+  <text x="48" y="558" fill="#1c1915" font-family="Helvetica, Arial, sans-serif" font-size="13">Not a recommendation. One model, read backwards.</text>
+</svg>

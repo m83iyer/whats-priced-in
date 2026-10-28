@@ -1,0 +1,8 @@
+post-draft.md:primary chars=255 x_weighted=270 banned=- url=yes OK
+post-draft.md:reply1 chars=220 x_weighted=221 banned=- url=no OK
+post-draft.md:qt1 chars=168 x_weighted=183 banned=- url=yes OK
+thread-alt.md:t1 chars=181 x_weighted=181 banned=- url=no OK
+thread-alt.md:t2 chars=235 x_weighted=235 banned=- url=no OK
+thread-alt.md:t3 chars=169 x_weighted=170 banned=- url=no OK
+thread-alt.md:t4 chars=164 x_weighted=179 banned=- url=yes OK
+ALL MATCH
